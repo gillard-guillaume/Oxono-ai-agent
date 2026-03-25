@@ -301,7 +301,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run Oxono games between two human players")
     parser.add_argument("-p0", type=str, default="human", help="First player (default: human)")
     parser.add_argument("-p1", type=str, default="human", help="Second player (default: human)")
-    parser.add_argument("-l", type=str, default=None, metavar="LOG_DIR", help="Log file (default: no logging)")
+    parser.add_argument("-l", type=str, default=f"data/game_{int(time.time())}.log", metavar="LOG_DIR", help="Log file (default: no logging)")
     parser.add_argument("-t", type=int, default=300, help="Time limit for each player (default: 300 seconds)")
     args = parser.parse_args()
 
