@@ -1,5 +1,5 @@
-from agent import Agent
-from oxono import Game
+from agents.agent import Agent
+from oxono.oxono import Game
 import math
 
 

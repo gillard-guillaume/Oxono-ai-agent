@@ -1,0 +1,1 @@
+ecris le main pour faire un gui pygame qui a pour menu principal un bouton play ou replayer qui appel soit le replayer ou soit passe a un sous menu ou je peux decider via un menu deroulan les 2 player qui peuvent etre chacun soit human, random agent, alpha beta agent ou encore d'autres si j'en crée d'autre et qui lance la game quand je fais play

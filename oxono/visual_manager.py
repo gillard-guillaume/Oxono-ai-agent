@@ -3,9 +3,12 @@ from pathlib import Path
 import pygame
 import math
 import sys
+import multiprocessing
+import threading
 import time
 
-from oxono import Game, State
+from oxono.manager import find_agent_class, AgentProcess
+from oxono.oxono import Game, State
 
 SELECT_TOTEM = 0
 SELECT_TOTEM_ACTION = 1
@@ -19,6 +22,10 @@ class VisualManager:
         self.agent_files = agent_files
         self.time_limit = time_limit
 
+        for agent_file in self.agent_files:
+            if agent_file != "human" and find_agent_class(agent_file) is None:
+                raise ValueError(f"No Agent subclass found in {agent_file}.")
+        
         self.path = None
         if path_to_file:
             self.path = Path(path_to_file)
@@ -26,62 +33,70 @@ class VisualManager:
             with self.path.open("w", encoding="utf-8") as f:
                 f.write(f"{self.time_limit}\n")
 
+        self.agent_0 = "human" if self.agent_files[0] == "human" else AgentProcess(self.agent_files[0], 0)
+        self.agent_1 = "human" if self.agent_files[1] == "human" else AgentProcess(self.agent_files[1], 1)
+
         self.state = State()
         self.remaining_times = [time_limit, time_limit]
         self.turn = 0
         self.reason = None
 
+        self._agent_thread = None
+        self._agent_result = None
+        
+        self._turn_start_time = None
+        self._turn_start_remaining = None
+
+        self.winner = None
+    
         self.dim = (6, 6)
 
         pygame.init()
-
+        
         self.screen = pygame.display.set_mode((70*self.dim[1] + 100, 70*self.dim[0] + 150))
         pygame.display.set_caption("Oxono GUI")
-
+        
         self.number_font = pygame.font.Font(None, 36)
         self.win_font = pygame.font.Font(None, 52)
 
         self.action_parts = []
 
         self.pieces = {
-            ('x', 0): self._create_piece_surface('x', 0),
-            ('x', 1): self._create_piece_surface('x', 1),
-            ('o', 0): self._create_piece_surface('o', 0),
-            ('o', 1): self._create_piece_surface('o', 1)
+            ('x', 0) : self._create_piece_surface('x', 0),
+            ('x', 1) : self._create_piece_surface('x', 1),
+            ('o', 0) : self._create_piece_surface('o', 0),
+            ('o', 1) : self._create_piece_surface('o', 1)
         }
 
         self.totems = {
-            'X': self._create_totem_surface('x'),
-            'O': self._create_totem_surface('o')
+            'X' : self._create_totem_surface('x'),
+            'O' : self._create_totem_surface('o')
         }
 
         self.clock = pygame.time.Clock()
         self.running = True
 
-        self.winner = None
-        self._turn_start_time = None
-        self._turn_start_remaining = None
-
         self.play()
-
+    
     def _create_piece_surface(self, symbol, player):
         surface = pygame.Surface((70, 70), pygame.SRCALPHA)
         center = (35, 35)
         pygame.draw.circle(surface, (51, 63, 73) if player == 1 else (254, 44, 135), center, 28)
-
+        
         if symbol == 'o':
             pygame.draw.circle(surface, (255, 255, 255), center, 15, width=6)
         else:
             w = 3  # half-width of the arms
             s = 12 # spread from center
-
+            
+            # Coordinates relative to center (35, 35)
             points = [
                 (35-s, 35-s+w), (35-s+w, 35-s), (35, 35-w), (35+s-w, 35-s),
                 (35+s, 35-s+w), (35+w, 35), (35+s, 35+s-w), (35+s-w, 35+s),
                 (35, 35+w), (35-s+w, 35+s), (35-s, 35+s-w), (35-w, 35)
             ]
             pygame.draw.polygon(surface, (255, 255, 255), points)
-
+        
         return surface
 
     def _create_totem_surface(self, symbol):
@@ -90,20 +105,21 @@ class VisualManager:
         rect_area = pygame.Rect(7, 7, 56, 56)
 
         pygame.draw.rect(surface, (1, 195, 255), rect_area, border_radius=12)
-
+        
         if symbol == 'o':
             pygame.draw.circle(surface, (255, 255, 255), (35, 35), 15, width=6)
         else:
             w = 3  # half-width of the arms
             s = 12 # spread from center
-
+            
+            # Coordinates relative to center (35, 35)
             points = [
                 (35-s, 35-s+w), (35-s+w, 35-s), (35, 35-w), (35+s-w, 35-s),
                 (35+s, 35-s+w), (35+w, 35), (35+s, 35+s-w), (35+s-w, 35+s),
                 (35, 35+w), (35-s+w, 35+s), (35-s, 35+s-w), (35-w, 35)
             ]
             pygame.draw.polygon(surface, (255, 255, 255), points)
-
+        
         return surface
 
     def is_possible_action(self, action):
@@ -114,13 +130,17 @@ class VisualManager:
             return action[0] == self.action_parts[0]
         else:
             return action[0] == self.action_parts[0] and action[1] == self.action_parts[1]
+        
 
     def _handle_mouse_click(self, pos):
+        if self.agent_files[Game.to_move(self.state)] != "human":
+            return
+            
         row = (pos[1] - 50) // 70
         col = (pos[0] - 50) // 70
         if row > 5 or col > 5:
             return
-
+        
         current_phase = len(self.action_parts)
         if current_phase == SELECT_TOTEM:
             if (row, col) == self.state.totem_O and self.state.pieces_o[self.state.current_player] > 0:
@@ -137,7 +157,7 @@ class VisualManager:
                 self.action_parts.append((row, col))
             else:
                 self.action_parts = []
-
+    
     def handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -147,7 +167,7 @@ class VisualManager:
                     self.running = False
             elif event.type == pygame.MOUSEBUTTONDOWN and not (Game.is_terminal(self.state) or any(t <= 0 for t in self.remaining_times) or (self.reason is not None)):
                 self._handle_mouse_click(event.pos)
-
+        
     def _draw_board(self):
         for i in range(self.dim[0]):
             for j in range(self.dim[1]):
@@ -155,7 +175,7 @@ class VisualManager:
 
     def _draw_piece(self, position, value):
         self.screen.blit(self.pieces[value], (70*position[1] + 50, 70*position[0] + 50))
-
+    
     def _draw_totem(self, position, value):
         self.screen.blit(self.totems[value], (70*position[1] + 50, 70*position[0] + 50))
 
@@ -183,7 +203,7 @@ class VisualManager:
                         self._draw_totem((i, j), 'X')
                     elif (i, j) == totem_move:
                         self._draw_totem((i, j), selected_totem)
-
+    
     def draw(self):
         self.screen.fill('White')
 
@@ -243,18 +263,19 @@ class VisualManager:
             text = self.number_font.render(f"Black: {truncate(self.remaining_times[1], 2)} s", True, 'Black')
             text_rect = text.get_rect(topleft=(320, 70*self.dim[0] + 110))
             self.screen.blit(text, text_rect)
-
+        
         text = self.number_font.render(f"Turn {self.turn+1}", True, 'Black')
         text_rect = text.get_rect(topleft=(50, 12))
         self.screen.blit(text, text_rect)
 
         pygame.display.flip()
-
+    
     def update(self):
-        if Game.is_terminal(self.state) or any(t <= 0 for t in self.remaining_times) or self.reason is not None:
+        if Game.is_terminal(self.state) or any(t <= 0 for t in self.remaining_times) or self.reason is not None:  # If the game is final, we don't have to do things anymore
             return
-
+        
         current = Game.to_move(self.state)
+        agent = self.agent_0 if current == 0 else self.agent_1
 
         if self._turn_start_time is None:
             self._turn_start_time = time.perf_counter()
@@ -263,13 +284,58 @@ class VisualManager:
         self.remaining_times[current] = self._turn_start_remaining - (time.perf_counter() - self._turn_start_time)
 
         action = None
-        if len(self.action_parts) > SELECT_PIECE_ACTION:  # We have finished selecting an action
-            action = tuple(self.action_parts)
-            self.action_parts = []
+        if agent == "human":
+            if len(self.action_parts) > SELECT_PIECE_ACTION:  # We have finished selecting an action
+                action = tuple(self.action_parts)
+                self.action_parts = []
+        else:
+            if self._agent_thread is None:
+                self._agent_result = None
 
-        if action is None:
+                def call_agent():
+                    try:
+                        result = agent.get_action(self.state.copy(), self._turn_start_remaining)
+                        self._agent_result = ("ok", result)
+                    except TimeoutError:
+                        self._agent_result = ("timeout", None)
+                    except RuntimeError as e:
+                        self._agent_result = ("error", e)
+                
+                self._agent_thread = threading.Thread(target=call_agent, daemon=True)
+                self._agent_thread.start()
+                return
+        
+            elif not self._agent_thread.is_alive():  # We have a result
+                
+                self._agent_thread = None
+
+                status, value = self._agent_result
+                
+                if status == "timeout":
+                    self.reason = "Timeout"
+                    self.winner = 1 - current
+                    if self.path:
+                        with self.path.open("a", encoding="utf-8") as f:
+                            f.write("timeout\n")
+                    return
+                elif status == "error":
+                    print(value)
+                    self.reason = "Exception"
+                    self.winner = 1 - current
+                    if self.path:
+                        with self.path.open("a", encoding="utf-8") as f:
+                            f.write("exception\n")
+                    return
+                
+                self.remaining_times[current] = self._turn_start_remaining - value[1]
+                action = value[0]
+
+            else:  # We are still waiting
+                return
+
+        if action is None:  # If no actions, then nothing to do
             return
-
+        
         if action not in Game.actions(self.state):
             self.reason = "Invalid action"
             if self.path:
@@ -285,7 +351,7 @@ class VisualManager:
         if self.path:
             with self.path.open("a", encoding="utf-8") as f:
                 f.write(f"{action}, {self.remaining_times[current]}\n")
-
+    
     def play(self):
         try:
             while self.running:
@@ -294,15 +360,56 @@ class VisualManager:
                 self.draw()
                 self.clock.tick(60)
         finally:
-            pygame.quit()
-            sys.exit()
+            if self.agent_0 != "human":
+                self.agent_0.shutdown()
+            if self.agent_1 != "human":
+                self.agent_1.shutdown()
+
+        pygame.quit()
+        sys.exit()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Run Oxono games between two human players")
-    parser.add_argument("-p0", type=str, default="human", help="First player (default: human)")
-    parser.add_argument("-p1", type=str, default="human", help="Second player (default: human)")
-    parser.add_argument("-l", type=str, default=f"data/human_vs_human/game_{int(time.time())}.log", metavar="LOG_DIR", help="Log file (default: no logging)")
-    parser.add_argument("-t", type=int, default=300, help="Time limit for each player (default: 300 seconds)")
-    args = parser.parse_args()
+    """
+    Launch a visual Oxono game from the command line.
 
-    VisualManager(agent_files=[args.p0, args.p1], time_limit=args.t, path_to_file=args.l)
+    Usage
+    -----
+        python visual_manager.py [-p0 FILE] [-p1 FILE] [-l FILE] [-t SECONDS]
+
+    Arguments
+    ---------
+        -p0 FILE        Python file for player 0 (pink). Use "human" to play
+                        yourself. Default: human.
+        -p1 FILE        Python file for player 1 (black). Use "human" to play
+                        yourself. Default: random_agent.py.
+        -l  FILE        Path to a log file where the game will be recorded.
+                        If omitted, no log is written.
+        -t  SECONDS     Time limit per player in seconds. Default: 300.
+
+    Controls (human player)
+    -----------------------
+        Click a Totem   Select which Totem to move.
+        Click a square  Select where to move the Totem, then where to place
+                        your piece. Click elsewhere to cancel and restart.
+        Escape          Close the window.
+
+    Examples
+    --------
+        # Human (pink) vs random agent (black)
+        python visual_manager.py
+
+        # Two agents, logged, 60s limit
+        python visual_manager.py -p0 my_agent.py -p1 random_agent.py -l game.txt -t 60
+
+        # Human vs human
+        python visual_manager.py -p0 human -p1 human
+    """
+
+
+    parser = argparse.ArgumentParser(description="Run Oxono games between two agents")
+    parser.add_argument("-p0", type=str, default="human")
+    parser.add_argument("-p1", type=str, default="random_agent.py")
+    parser.add_argument("-l", type=str, default=None)
+    parser.add_argument("-t", type=int, default=300)
+
+    args = parser.parse_args()

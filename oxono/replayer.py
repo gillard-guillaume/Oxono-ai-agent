@@ -1,4 +1,4 @@
-from oxono import Game, State
+from oxono.oxono import Game, State
 from pathlib import Path
 
 import pygame

@@ -5,8 +5,8 @@ import time
 import multiprocessing
 import argparse
 
-from oxono import Game, State
-from agent import Agent
+from oxono.oxono import Game, State
+from agents.agent import Agent
 
 def find_agent_class(filename):
     spec = importlib.util.spec_from_file_location(Path(filename).stem, filename)
