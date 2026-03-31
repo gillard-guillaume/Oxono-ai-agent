@@ -366,7 +366,7 @@ class VisualManager:
                 self.agent_1.shutdown()
 
         pygame.quit()
-        sys.exit()
+        return
 
 if __name__ == "__main__":
     """

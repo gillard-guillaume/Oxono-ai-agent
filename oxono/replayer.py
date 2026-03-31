@@ -257,7 +257,7 @@ class Replayer:
             self.clock.tick(60)
 
         pygame.quit()
-        sys.exit()
+        return
 
 if __name__ == "__main__":
     """
