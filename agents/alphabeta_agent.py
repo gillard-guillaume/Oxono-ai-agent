@@ -1,5 +1,5 @@
 from agents.agent import Agent
-from oxono.oxono import Game
+from oxono.oxono import Game, State
 import math
 
 
@@ -7,9 +7,14 @@ class AlphaBeta(Agent):
 
     def __init__(self, player):
         super().__init__(player)
+        self.move_count = 0
     
     def act(self, state, remaining_time):
-        return self.alpha_beta(state, depth=5)
+        if self.move_count <= 4:
+            self.move_count += 1
+            return self.alpha_beta(state, depth=3)
+        self.move_count += 1
+        return self.alpha_beta(state, depth=6)
         
     def alpha_beta(self, state, depth):
         value, move = self.max_value(state, -math.inf, math.inf, depth)
@@ -56,6 +61,10 @@ class AlphaBeta(Agent):
             if v <= alpha :
                 return v, move
         return v, move
+    
+    def killer_move(self, state):
+        """Look for a killer move (win in 1)"""
+        return None
 
 
     def evaluate(self, state):
