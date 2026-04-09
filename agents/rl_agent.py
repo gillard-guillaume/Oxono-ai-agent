@@ -1,184 +1,86 @@
-import random
+from agents.alphabeta_agent import AlphaBeta
+from oxono.oxono import Game, State
+from tensorflow.keras.models import load_model
 import numpy as np
-import tensorflow as tf
 
-from oxono import State, Game
+class RLAgent(AlphaBeta):
+    """
+    Reinforcement Learning-based agent extending AlphaBeta search
+    This agent reuses the AlphaBeta search framework but replaces the
+    handcrafted evaluation function with a neural network trained via self-play
 
+    Key features:
+    - Alpha-beta search with iterative deepening and time management
+    - Neural network evaluation of game states (CNN-based)
+    - State encoding preserving spatial structure of the board
+    - Inherits optimizations such as move ordering, transposition table,
+        killer moves, and pruning strategies from AlphaBeta
 
-# =========================
-# 1. ENCODAGE DU STATE
-# =========================
-def encode_state(state: State):
-    board_tensor = np.zeros((6, 6, 3))
+    The model predicts a value for each state, guiding the search toward
+    more promising positions
+    """
 
-    for i in range(6):
-        for j in range(6):
-            cell = state.board[i][j]
-            if cell:
-                symbol, player = cell
-                if symbol == 'x':
-                    board_tensor[i][j][0] = 1
-                else:
-                    board_tensor[i][j][1] = 1
-                board_tensor[i][j][2] = player
+    def __init__(self, player):
+        super().__init__(player)
+        self.model = load_model("agents/models/model1.keras")
 
-    return board_tensor.flatten()
+    @staticmethod
+    def encode_state(state: State, perspective_player: int = 0) -> np.ndarray:
+        """
+        Encode the game state into a 6x6x7 tensor suitable for a convolutional neural network.
 
+        The state is represented as a 3D tensor where each channel encodes a specific
+        type of information about the board from the perspective of a given player.
 
-# =========================
-# 2. MODELE TENSORFLOW
-# =========================
-def create_model():
-    model = tf.keras.Sequential([
-        tf.keras.layers.Dense(128, activation='relu', input_shape=(108,)),
-        tf.keras.layers.Dense(64, activation='relu'),
-        tf.keras.layers.Dense(1, activation='tanh')  # sortie entre -1 et 1
-    ])
+        Features (channels):
+            0: current player's X pieces
+            1: current player's O pieces
+            2: opponent's X pieces
+            3: opponent's O pieces
+            4: X totem position
+            5: O totem position
+            6: current player indicator (broadcast over the grid)
 
-    model.compile(
-        optimizer='adam',
-        loss='mse'
-    )
+        This representation preserves the spatial structure of the board, allowing
+        convolutional layers to capture local interactions between pieces.
 
-    return model
+        Args:
+            state (State): Current game state.
+            perspective_player (int): Player perspective (0 or 1).
 
+        Returns:
+            np.ndarray: Tensor of shape (6, 6, 7).
+        """
+        board = state.board
+        tensor = np.zeros((6, 6, 7), dtype=np.float32)
+        for r in range(6):
+            for c in range(6):
+                cell = board[r][c]
+                if cell is None:
+                    continue
+                sym, player = cell
+                is_mine = (player == perspective_player)
+                if sym == 'x':
+                    tensor[r][c][0 if is_mine else 2] = 1
+                elif sym == 'o':
+                    tensor[r][c][1 if is_mine else 3] = 1
+                elif sym == 'totem_x':
+                    tensor[r][c][4] = 1
+                elif sym == 'totem_o':
+                    tensor[r][c][5] = 1
+        tensor[:, :, 6] = state.current_player
+        return tensor
+    
+    def evaluate(self, state: State) -> float:
+        """
+        Evaluate a state using the neural network model.
 
-# =========================
-# 3. GENERER UNE PARTIE (SELF-PLAY)
-# =========================
-def generate_game():
-    state = State()
-    history = []
+        Args:
+            state (State): Current game state.
 
-    while not Game.is_terminal(state):
-        history.append(encode_state(state))
-
-        actions = Game.actions(state)
-        action = random.choice(actions)  # random au début
-
-        Game.apply(state, action)
-
-    # récompense finale
-    reward = Game.utility(state, 0)
-
-    return history, reward
-
-
-# =========================
-# 4. CREER DATASET
-# =========================
-def generate_dataset(n_games=1000):
-    X = []
-    y = []
-
-    for _ in range(n_games):
-        states, reward = generate_game()
-
-        for s in states:
-            X.append(s)
-            y.append(reward)
-
-    return np.array(X), np.array(y)
-
-
-# =========================
-# 5. ENTRAINEMENT
-# =========================
-def train_model(model, n_games=1000, epochs=5):
-    X, y = generate_dataset(n_games)
-
-    model.fit(X, y, epochs=epochs, verbose=1)
-
-
-# =========================
-# 6. EVALUATION (à utiliser dans alpha-beta)
-# =========================
-def evaluate(model, state):
-    s = encode_state(state)
-    value = model.predict(s.reshape(1, -1), verbose=0)[0][0]
-    return value
-
-
-# =========================
-# 7. CHOISIR UNE ACTION AVEC LE MODELE
-# =========================
-def select_action(model, state):
-    actions = Game.actions(state)
-
-    best_value = -float('inf')
-    best_action = None
-
-    for action in actions:
-        new_state = state.copy()
-        Game.apply(new_state, action)
-
-        value = evaluate(model, new_state)
-
-        if value > best_value:
-            best_value = value
-            best_action = action
-
-    return best_action
-
-
-# =========================
-# 8. SELF-PLAY AVEC LE MODELE
-# =========================
-def generate_game_with_model(model, epsilon=0.1):
-    state = State()
-    history = []
-
-    while not Game.is_terminal(state):
-        history.append(encode_state(state))
-
-        actions = Game.actions(state)
-
-        # exploration vs exploitation
-        if random.random() < epsilon:
-            action = random.choice(actions)
-        else:
-            action = select_action(model, state)
-
-        Game.apply(state, action)
-
-    reward = Game.utility(state, 0)
-
-    return history, reward
-
-
-# =========================
-# 9. ENTRAINEMENT ITERATIF (STYLE ALPHAZERO LIGHT)
-# =========================
-def train_iterative(model, iterations=10, games_per_iter=500):
-    for i in range(iterations):
-        print(f"\n=== ITERATION {i+1} ===")
-
-        X = []
-        y = []
-
-        for _ in range(games_per_iter):
-            states, reward = generate_game_with_model(model)
-
-            for s in states:
-                X.append(s)
-                y.append(reward)
-
-        X = np.array(X)
-        y = np.array(y)
-
-        model.fit(X, y, epochs=3, verbose=1)
-
-
-# =========================
-# 10. MAIN
-# =========================
-if __name__ == "__main__":
-    model = create_model()
-
-    print("🔹 Training initial (random play)...")
-    train_model(model, n_games=1000, epochs=5)
-
-    print("🔹 Training amélioré (self-play)...")
-    train_iterative(model, iterations=5, games_per_iter=500)
-
-    print("✅ Training terminé !")
+        Returns:
+            float: Predicted value of the state.
+        """
+        encoded = RLAgent.encode_state(state, perspective_player=self.player)
+        value = self.model(encoded[np.newaxis], training=False)[0][0]
+        return float(value)
