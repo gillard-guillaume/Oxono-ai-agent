@@ -26,7 +26,7 @@ class AlphaBeta(Agent):
         self.tt = {}
         self.tt_max_size = 100000 # still need to test what the max can be
         self.jack_the_ripper = {}
-        self.soft_limit = 0; self.hard_limit = 0; self.start_time = 0
+        self.soft_limit = 0; self.hard_limit = 0; self.start_time = 0; self.stop_search = False
         self.init_zobrist()
 
     def init_zobrist(self) -> None:
@@ -142,7 +142,7 @@ class AlphaBeta(Agent):
             None
         """
         ply = sum(cell is not None for row in state.board for cell in row)
-        C = 40; MaxPly = 36
+        C = 1; MaxPly = 34
         self.start_time = time.time()
         self.soft_limit = remaining_time / (C + max(MaxPly - ply, 0))
         self.hard_limit = self.soft_limit * 2
@@ -159,24 +159,26 @@ class AlphaBeta(Agent):
         elapsed = time.time() - self.start_time
         if elapsed > self.hard_limit:
             raise TimeoutError()
-        if elapsed * 2 > self.soft_limit:
-            raise TimeoutError()
+        if elapsed > self.soft_limit:
+            self.stop_search = True
 
     def shark_attack(self, state: State, player: int) -> Action | None:
         """
-        Detect an immediate winning move (ply 1).
+        Detect an immediate winning move (ply 1)
 
         Args:
-            state (State): Current game state.
-            player (int): Player perspective (0 or 1).
+            state (State): Current game state
+            player (int): Player to play (0 or 1)
 
         Returns:
-            tuple[str, tuple[int, int], tuple[int, int]] | None: Winning action if found, otherwise None.
+            tuple[str, tuple[int, int], tuple[int, int]] | None: Winning action if found, otherwise None
         """
-        for action in Game.actions(state):
-            new_state = state.copy()
+        temp_state = state.copy()
+        temp_state.current_player = player
+        for action in Game.actions(temp_state):
+            new_state = temp_state.copy()
             Game.apply(new_state, action)
-            if Game.utility(new_state, player) == 1:
+            if Game._last_piece_won(new_state):
                 return action
         return None
 
@@ -299,19 +301,19 @@ class AlphaBeta(Agent):
         if (move := self.shark_attack(state, self.player)) is not None: return move
         if (move := self.shark_attack(state, 1 - self.player)) is not None: return move
 
-        depth = 1
+        depth = 1; self.stop_search = False
         best_move = self.move_ordering(state, Game.actions(state), depth=0, reverse=True)[0]
         self.set_time_policy(state, remaining_time)
         try:
-            while True:
+            while not self.stop_search:
                 self.check_timeout()
                 move = self.alpha_beta(state, depth)
                 if move is not None:
                     best_move = move
-                print(f"[INFO] depth reached: {depth}")
                 depth += 1
         except TimeoutError:
             pass
+        #print(f"[INFO] depth reached: {depth}")
         return best_move
 
     def alpha_beta(self, state: State, depth: int) -> Action:

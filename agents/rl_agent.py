@@ -1,6 +1,6 @@
 from agents.alphabeta_agent import AlphaBeta
 from oxono.oxono import Game, State
-from tensorflow.keras.models import load_model
+from keras.models import load_model
 import numpy as np
 
 class RLAgent(AlphaBeta):
@@ -20,9 +20,12 @@ class RLAgent(AlphaBeta):
     more promising positions
     """
 
-    def __init__(self, player):
+    def __init__(self, player, model=None):
         super().__init__(player)
-        self.model = load_model("agents/models/model1.keras")
+        try:
+            self.model = model if model is not None else load_model("agents/models/cnn_f32_64_d256_lr0.001_g1500_it15.keras")
+        except Exception:
+            self.model = None
 
     @staticmethod
     def encode_state(state: State, perspective_player: int = 0) -> np.ndarray:

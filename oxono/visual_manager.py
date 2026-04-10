@@ -54,7 +54,7 @@ class VisualManager:
         pygame.init()
         
         self.screen = pygame.display.set_mode((70*self.dim[1] + 100, 70*self.dim[0] + 150))
-        pygame.display.set_caption("Oxono GUI")
+        pygame.display.set_caption("Oxono Player")
         
         self.number_font = pygame.font.Font(None, 36)
         self.win_font = pygame.font.Font(None, 52)

@@ -1,14 +1,14 @@
 import numpy as np
 import random as rd
 import tensorflow as tf
-from tensorflow.keras import layers
+from keras import layers
 import time
 
 from oxono.oxono import Game, State
 from agents.alphabeta_agent import AlphaBeta
 from agents.rl_agent import RLAgent
 
-
+# cmd systemd-inhibit python -m training.rl_training --iterations 2 --games 100
 def create_model():
     """
     Create a convolutional neural network (CNN) used to evaluate a game position
@@ -52,15 +52,13 @@ def create_model():
     return model
 
 
-
-
-def train(model, n_games=100, iteration=0, n_iterations=50):
+def train(model, n_games=100, iteration=0, n_iterations=50, epochs=5, batch_size=32):
     start_total = time.time()
 
     dataset_X = []
     dataset_y = []
 
-    # Epsilon
+    # Epsilon scheduling
     progress = iteration / n_iterations
     if progress < 1/3:
         epsilon = 0.5
@@ -78,7 +76,6 @@ def train(model, n_games=100, iteration=0, n_iterations=50):
         game_start = time.time()
 
         state = State()
-
         states = []
         players = []
 
@@ -86,48 +83,39 @@ def train(model, n_games=100, iteration=0, n_iterations=50):
 
         while not Game.is_terminal(state):
             step += 1
-
             current_player = state.current_player
 
             states.append(RLAgent.encode_state(state, current_player))
             players.append(current_player)
 
+            # exploration
             if rd.random() < epsilon:
                 action = rd.choice(Game.actions(state))
             else:
                 agent = agent_0 if current_player == 0 else agent_1
-                action = agent.act(state, remaining_time=300.0)
+                action = agent.act(state, remaining_time = 0.3)
 
             Game.apply(state, action)
 
-        # rewards
-        for i, (s, p) in enumerate(zip(states, players)):
-            reward = Game.utility(state, p)
+        # assign rewards
+        for s, p in zip(states, players):
             dataset_X.append(s)
-            dataset_y.append(reward)
+            dataset_y.append(Game.utility(state, p))
 
-        game_time = time.time() - game_start
-        print(f"  Game {g+1}/{n_games} - steps={step} - time={game_time:.2f}s")
+        print(f"  Game {g+1}/{n_games} - steps={step} - time={time.time() - game_start:.2f}s")
 
-    # Dataset creation
-    t0 = time.time()
+    # dataset
     X = np.array(dataset_X, dtype=np.float32)
     y = np.array(dataset_y, dtype=np.float32)
-    print(f"[Data] Conversion time: {time.time() - t0:.2f}s")
 
-    # Shuffle
-    t0 = time.time()
+    # shuffle
     idx = np.random.permutation(len(X))
     X, y = X[idx], y[idx]
-    print(f"[Data] Shuffle time: {time.time() - t0:.2f}s")
 
-    # Training
-    t0 = time.time()
-    model.fit(X, y, epochs=5, batch_size=32, verbose=1)
-    print(f"[Model] Fit time: {time.time() - t0:.2f}s")
+    # training
+    model.fit(X, y, epochs=epochs, batch_size=batch_size, verbose=1)
 
-    total_time = time.time() - start_total
-    print(f"[Train] Total iteration time: {total_time:.2f}s")
+    print(f"[Train] Total iteration time: {time.time() - start_total:.2f}s")
 
     return model
 
@@ -135,31 +123,36 @@ def train(model, n_games=100, iteration=0, n_iterations=50):
 
 
 if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", type=str, default=None)
+    parser.add_argument("--iterations", type=int, default=10)
+    parser.add_argument("--games", type=int, default=100)
+    parser.add_argument("--epochs", type=int, default=5)
 
-    global_start = time.time()
+    args = parser.parse_args()
 
-    iterations = 10
-    print("=" * iterations)
+    print("=" * 30)
     print("Training started")
-    print("=" * iterations)
+    print("=" * 30)
 
-    model = create_model()
+    # load or create model
+    if args.model:
+        model = tf.keras.models.load_model(args.model)
+        print(f"Loaded model from {args.model}")
+    else:
+        model = create_model()
+        print("Created new model")
 
-    for i in range(iterations):
-        # Train
-        t0 = time.time()
-        model = train(model, n_games=100, iteration=i, n_iterations=iterations)
-        train_time = time.time() - t0
-        print(f"[Time] Train       : {train_time:.2f}s")
+    for i in range(args.iterations):
+        print(f"\n[Iteration {i+1}/{args.iterations}]")
+        model = train(
+            model,
+            n_games=args.games,
+            iteration=i,
+            n_iterations=args.iterations,
+            epochs=args.epochs
+        )
 
-
-    print("\n" + "=" * iterations)
-    print("Training finished")
-    print("=" * iterations)
-
-    total_time = time.time() - global_start
-
-    print(f"Total training time : {total_time:.2f}s")
-
-    model.save("agents/models/model1.keras")
-    print("Model saved at agents/models/model1.keras")
+    model.save(f"agents/models/{model}.keras")
+    print(f"Model saved at agents/models/{model}.keras")

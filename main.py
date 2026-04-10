@@ -143,6 +143,10 @@ class PlayMenu:
         self.dropdown_p0 = Dropdown(150, 160, 400, 60, AGENTS, self.font)
         self.dropdown_p1 = Dropdown(150, 300, 400, 60, AGENTS, self.font)
 
+        # just for testing the models at the moment
+        self.dropdown_p0.selected = AGENTS.index("alphabeta_agent.py")
+        self.dropdown_p1.selected = AGENTS.index("rl_agent.py")
+
         self.play()
 
     def draw(self):
