@@ -13,7 +13,7 @@ def find_agent_class(filename):
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     for name, obj in inspect.getmembers(module, inspect.isclass):
-        if issubclass(obj, Agent) and obj is not Agent:
+        if (issubclass(obj, Agent) and obj is not Agent and obj.__module__ == module.__name__):
             return obj
     return None
 

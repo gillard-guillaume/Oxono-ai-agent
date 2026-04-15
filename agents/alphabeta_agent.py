@@ -1,6 +1,7 @@
 import math
 import time
 import random
+import sys
 
 from agents.agent import Agent
 from oxono.oxono import Game, State
@@ -17,17 +18,31 @@ class AlphaBeta(Agent):
     - Time management with soft and hard bounds to control search duration
     - Transposition table with Zobrist hashing to reuse computed states
     - Move ordering (hash move, killer moves, heuristic evaluation)
-    - Immediate loss pruning to avoid obvious tactical blunders
     - Tactical shortcuts like immediate win detection
     """
 
-    def __init__(self, player):
+    def __init__(self, player, debug=False, log_file="AB_log.log", tt_size=10000):
         super().__init__(player)
+        self.agent_name = "Alpha Beta agent"
+        self.debug = debug
+        self.log_file =log_file
         self.tt = {}
-        self.tt_max_size = 100000 # still need to test what the max can be
+        self.tt_size = tt_size # still need to test what the max can be
         self.jack_the_ripper = {}
         self.soft_limit = 0; self.hard_limit = 0; self.start_time = 0; self.stop_search = False
         self.init_zobrist()
+        self.lines_of_4 = self.get_lines_of_4()
+
+        self.tt_hits = 0
+        self.tt_miss = 0
+        self.tt_time = 0
+
+    def log(self, msg):
+        if self.debug :
+            if self.log_file is not None :
+                with open(self.log_file, "a") as f:
+                    f.write(f"{msg}, {self.agent_name}" + "\n")
+            print(f"{msg}, {self.agent_name}", file=sys.stderr)
 
     def init_zobrist(self) -> None:
         """
@@ -59,12 +74,14 @@ class AlphaBeta(Agent):
         The cleaning strategy progressively increases the minimum depth threshold to remove less reliable entries.
         If the table is still too large, a fallback mechanism removes random entries to ensure the size constraint is respected.
         """
+        self.log(f"TT clearing started, len = {len(self.tt)}")
         cleaning_depth = 1
-        while len(self.tt) > self.tt_max_size and cleaning_depth <= 5:
+        while len(self.tt) > self.tt_size and cleaning_depth <= 5:
             self.tt = {k: v for k, v in self.tt.items() if v[1] >= cleaning_depth}
             cleaning_depth += 1
-        while len(self.tt) > self.tt_max_size:
+        while len(self.tt) > self.tt_size:
             self.tt.pop(random.choice(list(self.tt.keys())))
+        self.log(f"TT clearing finished, len = {len(self.tt)}")
 
     def tt_lookup(self, state: State, depth: int) -> tuple[float | None, Action | None]:
         """
@@ -79,11 +96,18 @@ class AlphaBeta(Agent):
                 - value (float | None): Stored evaluation if found at sufficient depth.
                 - move (Action | None): Best move associated with the stored state.
         """
+        t0 = time.perf_counter()
+
         key = self.hash_state(state)
         if key in self.tt:
             val, stored_depth, move = self.tt[key]
             if stored_depth >= depth:
+                self.tt_hits += 1
+                self.tt_time += time.perf_counter() - t0
                 return val, move
+
+        self.tt_miss += 1
+        self.tt_time += time.perf_counter() - t0
         return None, None
 
     def tt_store(self, state: State, value: float, depth: int, move: Action | None) -> None:
@@ -101,11 +125,16 @@ class AlphaBeta(Agent):
         Returns:
             None
         """
+        t0 = time.perf_counter()
+        if self.stop_search: return
         key = self.hash_state(state)
         if key not in self.tt or depth >= self.tt[key][1]:
-            if len(self.tt) >= self.tt_max_size:
+            if len(self.tt) >= self.tt_size:
                 self.clear_tt()
             self.tt[key] = (value, depth, move)
+            self.log(f"TT stored, len = {len(self.tt)}")
+            self.tt_time += time.perf_counter() - t0
+
 
     def hash_state(self, state: State) -> int:
         """
@@ -146,7 +175,9 @@ class AlphaBeta(Agent):
         self.start_time = time.time()
         self.soft_limit = remaining_time / (C + max(MaxPly - ply, 0))
         self.hard_limit = self.soft_limit * 2
+        self.log(f"Time policy set to : {self.soft_limit}")
         if self.shark_attack(state, self.player):
+            self.log("Time policy reduced : shark attack")
             self.soft_limit *= 0.5
 
     def check_timeout(self) -> None:
@@ -158,8 +189,10 @@ class AlphaBeta(Agent):
         """
         elapsed = time.time() - self.start_time
         if elapsed > self.hard_limit:
+            self.log("Hard limit reached")
             raise TimeoutError()
         if elapsed > self.soft_limit:
+            self.log("Soft limit reached")
             self.stop_search = True
 
     def shark_attack(self, state: State, player: int) -> Action | None:
@@ -195,26 +228,7 @@ class AlphaBeta(Agent):
         """
         new_state = state.copy()
         Game.apply(new_state, action)
-        return self.evaluate(new_state)
-
-    def immediate_loss_pruning(self, state: State, actions: list[Action]) -> list[Action]:
-        """
-        Remove actions that allow an immediate win for the opponent.
-
-        Args:
-            state (State): Current game state.
-            actions (list[Action]): List of possible actions.
-
-        Returns:
-            list[Action]: Filtered list of safe actions.
-        """
-        safe_actions = []
-        for a in actions:
-            new_state = state.copy()
-            Game.apply(new_state, a)
-            if self.shark_attack(new_state, 1 - self.player) is None:
-                safe_actions.append(a)
-        return safe_actions
+        return self.score_alignments(new_state)
 
     def store_killer(self, depth: int, move: Action) -> None:
         """
@@ -228,6 +242,7 @@ class AlphaBeta(Agent):
         Returns:
             None
         """
+        self.log("Killer move stored")
         if depth not in self.jack_the_ripper:
             self.jack_the_ripper[depth] = []
         killers = self.jack_the_ripper[depth]
@@ -244,7 +259,6 @@ class AlphaBeta(Agent):
         Priority:
         1. Hash move (from transposition table)
         2. Killer moves
-        3. Immediate loss pruning (safe moves)
         4. Heuristic evaluation
 
         Args:
@@ -261,24 +275,17 @@ class AlphaBeta(Agent):
         ordered_actions = []
         _, tt_move = self.tt_lookup(state, depth)
         if tt_move in actions:
-            actions.remove(tt_move)
             ordered_actions.append(tt_move)
 
         if depth in self.jack_the_ripper:
             for killer in self.jack_the_ripper[depth]:
                 if killer in actions:
-                    actions.remove(killer)
                     ordered_actions.append(killer)
-
-        safe_actions = self.immediate_loss_pruning(state, actions)
-        if safe_actions:
-            actions = safe_actions
-
         scored = []
         for a in actions:
-            score = self.quick_eval(state, a)
-            scored.append((score, a))
-
+            if a not in ordered_actions :
+                score = self.quick_eval(state, a)
+                scored.append((score, a))
         scored.sort(key=lambda x: x[0], reverse=reverse)
         ordered_actions.extend(a for _, a in scored)
         return ordered_actions
@@ -298,22 +305,29 @@ class AlphaBeta(Agent):
                 - totem_pos (tuple[int, int]): Target position of the totem (row, col).
                 - piece_pos (tuple[int, int]): Position where the piece is placed (row, col).
         """
-        if (move := self.shark_attack(state, self.player)) is not None: return move
-        if (move := self.shark_attack(state, 1 - self.player)) is not None: return move
+        if (move := self.shark_attack(state, self.player)) is not None: 
+            self.log("Winning move detected, playing it right now")
+            return move
+        if (move := self.shark_attack(state, 1 - self.player)) is not None:
+            self.log("Imminent threat detected, blocking it right now")
+            return move
 
-        depth = 1; self.stop_search = False
-        best_move = self.move_ordering(state, Game.actions(state), depth=0, reverse=True)[0]
+        depth = 1
+        best_move = self.move_ordering(state, Game.actions(state), depth, reverse=True)[0]
         self.set_time_policy(state, remaining_time)
         try:
-            while not self.stop_search:
-                self.check_timeout()
+            while True:
+                self.stop_search = False
                 move = self.alpha_beta(state, depth)
-                if move is not None:
+                if move is not None and not self.stop_search:
                     best_move = move
+                if self.stop_search: break
                 depth += 1
         except TimeoutError:
             pass
-        #print(f"[INFO] depth reached: {depth}")
+        self.log(f"[INFO] max depth reached: {depth}")
+        self.log(f"TT hits: {self.tt_hits}, miss: {self.tt_miss}")
+        self.log(f"TT time: {self.tt_time:.4f}s")
         return best_move
 
     def alpha_beta(self, state: State, depth: int) -> Action:
@@ -362,8 +376,11 @@ class AlphaBeta(Agent):
         
         v = -math.inf; move = None
         actions = self.move_ordering(state, Game.actions(state), depth, reverse=True)
+        actions = Game.actions(state)
         
         for a in actions:
+            if self.stop_search: break
+
             new_state = state.copy()
             Game.apply(new_state, a)
             v2, _ = self.min_value(new_state, alpha, beta, depth-1)
@@ -407,8 +424,11 @@ class AlphaBeta(Agent):
         
         v = math.inf; move = None
         actions = self.move_ordering(state, Game.actions(state), depth, reverse=False)
+        actions = Game.actions(state)
 
         for a in actions: 
+            if self.stop_search: break
+
             new_state = state.copy()
             Game.apply(new_state, a)
             v2, _ = self.max_value(new_state, alpha, beta, depth-1)
@@ -423,56 +443,136 @@ class AlphaBeta(Agent):
         self.tt_store(state, v, depth, move)
         return v, move
 
-    def evaluate(self, state: State) -> int:
+    def get_lines_of_4(self, n: int = 6, k: int = 4) -> list[list[tuple[int, int]]]:
         """
-        Heuristic evaluation of a non-terminal state.
-        The score is based on alignments of symbols and pieces of the same player.
-        
-        STILL NEED IMPROVEMENT
+        Generate all horizontal and vertical segments of length k on an n x n board.
 
         Args:
-            state (State): Current game state.
+            n (int): Board size.
+            k (int): Segment length.
 
         Returns:
-            int: Evaluation score (positive if favorable, negative otherwise).
+            list[list[tuple[int, int]]]: List of segments of k positions (row, col).
+        """
+        lines = []
+        for r in range(n):
+            for c in range(n - k + 1):
+                lines.append([(r, c + i) for i in range(k)])
+        for c in range(n):
+            for r in range(n - k + 1):
+                lines.append([(r + i, c) for i in range(k)])
+        return lines
+    
+    def evaluate(self, state: State) -> int:
+        """
+        Evaluate a game state from the perspective of self.player
+        States are scored using heuristic components
+        Current implementation relies on alignment-based evaluation, but the structure allows adding more features
+
+        Args:
+            state (State): current game state
+
+        Returns:
+            int: positive if favorable, negative if unfavorable
+        """
+        if self.shark_attack(state, state.current_player) is not None:
+            return +100000 if state.current_player == self.player else -100000
+        score = 0
+        score += self.score_alignments(state)
+        BONUS = 300
+        last_player = 1 - state.current_player
+        #for totem in ['O', 'X']:
+        #    if self.super_totem(state, totem):
+        #        score += BONUS if last_player == self.player else -BONUS
+        return score
+
+    def score_alignments(self, state: State) -> int:
+        """
+        Evaluate all segments of 4 cells and assign a heuristic score
+
+        The evaluation is always from the perspective of self.player
+
+        Scoring logic:
+        - 3 aligned:
+            - Uniform (same color + same symbol): strongest
+            - Color alignment: strong (independent of symbol)
+            - Symbol alignment: weaker (often exploitable by both players)
+            - Depends on current_player (who can play next)
+
+        - 2 aligned:
+            - Open (both ends free): strong potential
+            - Semi-open or basic: moderate potential
+            - Color > Symbol
+
+        Heuristic principles:
+        - Prioritize immediate wins and threats
+        - Penalize opponent threats more than rewarding own opportunities
+        - Favor patterns exploitable by a single player
+        - Reduce value of ambiguous (shared) patterns
+
+        Returns:
+            int: positive if favorable, negative if dangerous
+        """
+        ATTACK = 1; DEFENSE = 2.5
+        THREE_UNIFORM = 15000; THREE_COLOUR  = 10000; THREE_SYMBOL  = 1000
+        OPEN_TWO_COLOUR = 2500; OPEN_TWO_SYMBOL = 1000
+        TWO_COLOUR = 500; TWO_SYMBOL = 150
+        score = 0
+
+        for line in self.lines_of_4:
+            current_player = state.current_player
+            cells = [state.board[r][c] for (r, c) in line]
+            nb_empty = sum(1 for c in cells if c is None)
+            nb_mine = sum(1 for c in cells if c is not None and c[1] == self.player)
+            nb_enemy = sum(1 for c in cells if c is not None and c[1] == 1 - self.player)
+            nb_x = sum(1 for c in cells if c is not None and c[0] == 'x')
+            nb_o = sum(1 for c in cells if c is not None and c[0] == 'o')
+            symbols = [None if c is None else c[0] for c in cells]
+            colours = [None if c is None else c[1] for c in cells]
+
+            if nb_empty == 1:
+                if nb_mine == 3 and (nb_x == 3 or nb_o == 3):
+                    score += THREE_UNIFORM if current_player == self.player else -THREE_UNIFORM * DEFENSE
+                elif nb_mine == 3:
+                    score += THREE_COLOUR if current_player == self.player else -THREE_COLOUR * DEFENSE
+                elif nb_enemy == 3:
+                    score -= THREE_COLOUR * DEFENSE if current_player == self.player else -THREE_COLOUR
+                elif nb_x == 3 or nb_o == 3:
+                    score += THREE_SYMBOL if current_player == self.player else -THREE_SYMBOL * DEFENSE
+
+            if nb_empty == 2:
+                if colours == [None, colours[1], colours[1], None] and colours[1] is not None:
+                    score += OPEN_TWO_COLOUR * ATTACK if colours[1] == self.player else -OPEN_TWO_COLOUR * DEFENSE
+                if symbols == [None, symbols[1], symbols[1], None] and symbols[1] is not None:
+                    score -= OPEN_TWO_SYMBOL * DEFENSE
+                if nb_mine == 2:
+                    score += TWO_COLOUR * ATTACK
+                elif nb_enemy == 2:
+                    score -= TWO_COLOUR * DEFENSE
+                elif nb_x == 2 or nb_o == 2:
+                    score -= TWO_SYMBOL * DEFENSE
+        return int(score)
+    
+    def super_totem(self, state: State, totem: str) -> bool:
+        """
+        Check whether a totem is locally trapped (surrounded on all four adjacent sides)
+        This allows the player to place a piece anywhere on the board, making it sometimes a huge advantage 
+
+        Args:
+            state (State): The current game state
+            totem (str): The totem to evaluate ('O' or 'X')
+
+        Returns:
+            bool: True if the totem is locally surrounded (no adjacent free squares),
+                False otherwise
         """
         board = state.board
-        score = 0
-        directions = [(1, 0), (0, 1)]  # vertical, horizontal
-        for r in range(6):
-            for c in range(6):
-                if board[r][c] is None:
-                    continue
-                symbol, player = board[r][c]
-                for dr, dc in directions:
-                    count_symbol = 0
-                    count_color = 0
-                    for i in range(4):
-                        nr, nc = r + i*dr, c + i*dc
-                        if not (0 <= nr < 6 and 0 <= nc < 6):
-                            break
-                        cell = board[nr][nc]
-                        if cell is None: break
-                        sym, pl = cell
-                        if sym == symbol:
-                            count_symbol += 1
-                        else: break
-                    for i in range(4):
-                        nr, nc = r + i*dr, c + i*dc
-                        if not (0 <= nr < 6 and 0 <= nc < 6): break
-                        cell = board[nr][nc]
-                        if cell is None: break
-                        sym, pl = cell
-                        if pl == player and sym != symbol:
-                            score += 50
-                        if pl == player and sym == symbol:
-                            score += 20
-                        else: break
-                    # scoring
-                    if player == self.player:
-                        score += count_color * 5
-                        score += count_symbol * 3
-                    else:
-                        score -= count_color * 5
-                        score -= count_symbol * 3
-        return score
+        r, c = state.totem_O if totem == 'O' else state.totem_X
+        directions = [(1, 0), (-1, 0), (0, 1), (0, -1)]
+        for dr, dc in directions:
+            nr, nc = r + dr, c + dc
+            if not ((0 <= nr < 6) and (0 <= nc < 6)):
+                continue
+            if (board[nr][nc] is None):
+                return False
+        return True

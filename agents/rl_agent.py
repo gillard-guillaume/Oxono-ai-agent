@@ -2,6 +2,7 @@ from agents.alphabeta_agent import AlphaBeta
 from oxono.oxono import Game, State
 from keras.models import load_model
 import numpy as np
+Action = tuple[str, tuple[int, int], tuple[int, int]]
 
 class RLAgent(AlphaBeta):
     """
@@ -20,10 +21,13 @@ class RLAgent(AlphaBeta):
     more promising positions
     """
 
-    def __init__(self, player, model=None):
+    def __init__(self, player, model=None, debug=True, log_file="RL_log.log"):
         super().__init__(player)
+        self.agent_name = "RL agent"
+        self.debug =debug
+        self.log_file = log_file
         try:
-            self.model = model if model is not None else load_model("agents/models/cnn_f32_64_d256_lr0.001_g1500_it15.keras")
+            self.model = model if model is not None else load_model("training/models/cnn_f32_64_d256_lr0.001_g1500_it15.keras")
         except Exception:
             self.model = None
 
@@ -73,6 +77,21 @@ class RLAgent(AlphaBeta):
                     tensor[r][c][5] = 1
         tensor[:, :, 6] = state.current_player
         return tensor
+    
+    def quick_eval(self, state: State, action: Action) -> float:
+        """
+        Quickly evaluate the result of applying an action to a state.
+
+        Args:
+            state (State): Current game state.
+            action (Action): Action to simulate.
+
+        Returns:
+            float: Heuristic value of the resulting state.
+        """
+        new_state = state.copy()
+        Game.apply(new_state, action)
+        return self.evaluate(new_state)
     
     def evaluate(self, state: State) -> float:
         """

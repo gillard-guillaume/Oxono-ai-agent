@@ -131,7 +131,7 @@ class MainMenu:
 class PlayMenu:
     def __init__(self):
         pygame.init()
-        self.screen = pygame.display.set_mode((750, 700))
+        self.screen = pygame.display.set_mode((750, 900))
         pygame.display.set_caption("Play Menu")
 
         self.font = pygame.font.Font(None, 42)
@@ -144,8 +144,8 @@ class PlayMenu:
         self.dropdown_p1 = Dropdown(150, 300, 400, 60, AGENTS, self.font)
 
         # just for testing the models at the moment
-        self.dropdown_p0.selected = AGENTS.index("alphabeta_agent.py")
-        self.dropdown_p1.selected = AGENTS.index("rl_agent.py")
+        self.dropdown_p0.selected = AGENTS.index("ab4_agent.py")
+        self.dropdown_p1.selected = AGENTS.index("human")
 
         self.play()
 

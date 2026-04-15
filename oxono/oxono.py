@@ -87,7 +87,7 @@ class Game:
         return state.current_player
     
     @staticmethod
-    def _totems_actions(state: State, totem: str) -> list[tuple[str, tuple[int, int]]]:
+    def _totems_actions(state: State, totem: str) -> list[tuple[int, int]]:
         """
         Return all valid destination squares for a given Totem.
 
