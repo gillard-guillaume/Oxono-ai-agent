@@ -12,40 +12,26 @@ EXACT = 0
 LOWERBOUND = 1
 UPPERBOUND = 2
 
-class AB6(Agent):
+class AB7(Agent):
     """
-    AB6
-    This agent score 90 percent on inginious 
-        Playing with pink (player 0): 
-            4/5 game won 
-            game 0: won
-            game 1: won 
-            game 2: won
-            game 3: lost turn 23 (turn here are ply)
-                    turn 16 block an imminent treath turn 17 black create another imminent treath 
-                    blocked by pink turn 18 again turn 19 and 20 black treathen and pink block
-                    turn 21 black trapped both totem in a l shap of 3 case so both totem only have one move on the same square
-                    if pink play the O totem black win next turn in the current state
-                    but by playing the X totem it trapped the totem O in a single square enabling black to still win next turn
-                    Hypothessis quiesence search not deep enough (current q depth = 4) 
+    AB7
+    This agent score 80 percent on inginious symetric (black and pink 4/5 games won)
 
-            game 4: won
     """
 
 
-    def __init__(self, player, debug=False, log_file="AB6_log.log", tt_size=100_000):
+    def __init__(self, player, debug=True, log_file="AB7_log.log", tt_size=100_000):
         super().__init__(player)
-        self.agent_name = "AB6 agent"
-        self.debug = debug
-        self.log_file =log_file
         self.tt = OrderedDict()
         self.tt_size = tt_size # still need to test what the max can be
         self.init_zobrist()
         self.stop_search = False
 
-        self.tt_hits = 0
-        self.tt_miss = 0
-        self.tt_time = 0
+        # Performance and Debugging variables
+        self.agent_name = "AB7 agent"
+        self.debug = debug
+        self.log_file =log_file
+        self.tt_hits = 0; self.tt_miss = 0; self.tt_time = 0
 
     def log(self, msg):
         if self.debug :
@@ -79,74 +65,48 @@ class AB6(Agent):
         self.zobrist_turn = random.getrandbits(64)
 
     def tt_lookup(self, h: int, depth: int, alpha: float, beta: float) -> tuple[float | None, Action | None, float, float]:
-        """
-        Retrieve stored information from the transposition table and update alpha beta bounds if applicable
-
-        Args:
-            state (State): Current game state
-            depth (int): Required search depth
-            alpha (float): Current alpha value
-            beta (float): Current beta value
-
-        Returns:
-            tuple[float | None, Action | None, float, float]:
-                - value (float | None): Stored evaluation if usable
-                - move (Action | None): Best move associated with the state
-                - alpha (float): Possibly updated alpha
-                - beta (float): Possibly updated beta
-        """
-
         if h not in self.tt:
             return None, None, alpha, beta
 
-        val, stored_depth, move, flag = self.tt[h]
-        if stored_depth >= depth:
-            self.tt.move_to_end(h) # If accessed but not usefull it's bad quality        
+        val, stored_depth, move, flag = self.tt[h] 
+        self.tt.move_to_end(h) # moving to end, LRU cache first = oldest
 
         if stored_depth < depth:
             self.tt_miss += 1
             return None, move, alpha, beta
+        
 
         if flag == EXACT:
             self.tt_hits += 1
             return val, move, alpha, beta
 
         elif flag == LOWERBOUND:
+            if val >= beta :
+                self.tt_hits += 1
+                return val, move, alpha, beta
             alpha = max(alpha, val)
         elif flag == UPPERBOUND:
+            if val <= alpha :
+                self.tt_hits += 1
+                return val, move, alpha, beta
             beta = min(beta, val)
-
-        if alpha >= beta:
-            self.tt_hits += 1
-            return val, move, alpha, beta
 
         self.tt_miss += 1
         return None, move, alpha, beta
 
     def tt_store(self, h: int, value: float, depth: int, move: Action | None, flag: int) -> None:
-        """
-        Store a state evaluation in the transposition table
-        The entry is stored only if it is new or computed at an equal or greater depth
-
-        Args:
-            state (State): Current game state
-            value (float): Evaluation value of the state
-            depth (int): Depth at which the value was computed
-            move (Action | None): Best move found from this state
-            flag (int): Type of bound EXACT, LOWERBOUND or UPPERBOUND
-
-        Returns:
-            None
-        """
-
         if h in self.tt:
-            if depth < self.tt[h][1]:
+            old_val, old_depth, _, old_flag = self.tt[h]
+            if depth < old_depth:
                 return
+            if depth == old_depth:
+                if old_flag == EXACT and flag != EXACT: # overwriting with exact value bc its better
+                    return
             self.tt.pop(h) 
         elif len(self.tt) >= self.tt_size:
             self.tt.popitem(last=False) # LRU / FIFO
+        self.log(f"Store: player={self.player}, flag={flag}, val={value}, depth={depth}")
         self.tt[h] = (value, depth, move, flag)
-
 
     def hash_state(self, state: State) -> int:
         """
@@ -228,8 +188,7 @@ class AB6(Agent):
         if tt_move in actions:
             return [tt_move] + [a for _, a in scored]
         return [a for _, a in scored]
-
-        
+  
     def shark_attack(self, state: State, player: int) -> Action | None:
         """
         Detect an immediate winning move (ply 1)
@@ -242,13 +201,26 @@ class AB6(Agent):
             tuple[str, tuple[int, int], tuple[int, int]] | None: Winning action if found, otherwise None
         """
         temp_state = state.copy()
-        temp_state.current_player = player
+        temp_state.current_player = player # for threat detection player is not the same for win detection its the same 
         for action in Game.actions(temp_state):
             new_state = temp_state.copy()
             Game.apply(new_state, action)
-            if Game._last_piece_won(new_state):
+            if Game._last_piece_won(new_state) and self.pieces_in_stock(state, player, action):
                 return action
         return None
+    
+    def pieces_in_stock(self, state: State, player: int, action: Action) -> bool:
+        """Basicly not usefull if it return False we are cooked because we loose next turn 
+            but may prolongue the game and avoid loosing by invalid action error"""
+        if state.current_player == player : # not usefull if its win detection move always valid
+            return True
+        symbol = action[0]
+        if symbol == 'X':
+            pieces_left = state.pieces_x[player]
+        else :
+            pieces_left = state.pieces_o[player]
+        return pieces_left > 0
+    
 
     def set_time_policy(self, state: State, remaining_time: float) -> None:
         """
@@ -303,6 +275,7 @@ class AB6(Agent):
             return move
         if (move := self.shark_attack(state, 1 - self.player)) is not None:
             self.log("Imminent threat detected, blocking it right now")
+            self.log(f"Move : {move}")
             return move
         self.set_time_policy(state, remaining_time)
         depth = 1; last_completed_depth = 0
@@ -343,31 +316,16 @@ class AB6(Agent):
         return move
       
     def max_value(self, state: State, alpha: float, beta: float, depth: int, h: int = None) -> tuple[float, Action | None]:
-        """
-        Compute the maximum value for the current player
-
-        Args:
-            state (State): Current game state
-            alpha (float): Best value achievable by the maximizing player so far
-            beta (float): Best value achievable by the minimizing player so far
-            depth (int): Remaining search depth
-            start_time (float): Search start time
-            time_limit (float): Allowed search time
-
-        Returns:
-            tuple[float, action | None]:
-                - value (float): Evaluation of the state
-                - action (tuple or None): Best action leading to this value
-        """
         self.check_timeout()
+
         if Game.is_terminal(state):
             return Game.utility(state, self.player), None
         if depth == 0:
-            return self.quiescence(state, alpha, beta), None
+            return self.qui_est_ce(state, alpha, beta), None
         if h is None:
             h = self.hash_state(state)
-        actions = Game.actions(state)
-        original_alpha = alpha
+
+        actions = Game.actions(state); original_alpha = alpha
         tt_val, tt_move, alpha, beta = self.tt_lookup(h, depth, alpha, beta)
 
         if tt_val is not None:
@@ -382,47 +340,28 @@ class AB6(Agent):
             child_h = self.update_hash(h, state, a)
             new_state = state.copy()
             Game.apply(new_state, a)
-            if self.debug :
-                assert child_h == self.hash_state(new_state), f"Hash inconsistant pour action {a}"
             v2, _ = self.min_value(new_state, alpha, beta, depth-1, child_h)
-            if v2 > v :
+            if v2 > v : # fail soft, (keeping highest value)
                 v, move = v2, a
             alpha = max(alpha, v)
-            if v >= beta:
+            if v >= beta: # beta cutoff, fail high 
                 self.tt_store(h, v, depth, move, LOWERBOUND)
                 return v, move
         
-        flag = UPPERBOUND if v < original_alpha else EXACT
+        flag = UPPERBOUND if v <= original_alpha else EXACT # fail low
         self.tt_store(h, v, depth, move, flag)
         return v, move
 
     def min_value(self, state: State, alpha: float, beta: float, depth: int, h: int = None) -> tuple[float, Action | None]:
-        """
-        Compute the minimum value for the opponent
-
-        Args:
-            state (State): Current game state
-            alpha (float): Best value achievable by the maximizing player so far
-            beta (float): Best value achievable by the minimizing player so far
-            depth (int): Remaining search depth
-            start_time (float): Search start time
-            time_limit (float): Allowed search time
-
-        Returns:
-            tuple[float, action | None]:
-                - value (float): Evaluation of the state
-                - action (tuple or None): Best action leading to this value
-        """
         self.check_timeout()
         if Game.is_terminal(state):
             return Game.utility(state, self.player), None
         if depth == 0:
-            return self.quiescence(state, alpha, beta), None
+            return self.qui_est_ce(state, alpha, beta), None
         if h is None:
             h = self.hash_state(state)
 
-        actions = Game.actions(state)    
-        original_beta = beta
+        actions = Game.actions(state); original_beta = beta 
         tt_val, tt_move, alpha, beta = self.tt_lookup(h, depth, alpha, beta)
 
         if tt_val is not None:
@@ -437,16 +376,15 @@ class AB6(Agent):
             child_h = self.update_hash(h, state, a)
             new_state = state.copy()
             Game.apply(new_state, a)
-            if self.debug :
-                assert child_h == self.hash_state(new_state), f"Hash inconsistant pour action {a}"
+
             v2, _ = self.max_value(new_state, alpha, beta, depth-1, child_h)
-            if v2 < v:
+            if v2 < v: # fail soft, (keeping lowest value)
                 v, move = v2, a
             beta = min(beta, v)
-            if v <= alpha:
+            if v <= alpha: # alpha cutoff, fail low
                 self.tt_store(h, v, depth, move, UPPERBOUND)
                 return v, move
-        flag = LOWERBOUND if v > original_beta else EXACT
+        flag = LOWERBOUND if v >= original_beta else EXACT # fail high
         self.tt_store(h, v, depth, move, flag)
         return v, move
 
@@ -506,55 +444,49 @@ class AB6(Agent):
                     else:
                         score -= val
         return math.tanh(score / 300)
-    
+        
 
-    def quiescence(self, state, alpha, beta, q_depth=0):
+    def qui_est_ce(self, state: State, alpha, beta):
         if Game.is_terminal(state):
             return Game.utility(state, self.player)
+
+        stand_pat = self.evaluate(state) # value if we do nothing (quiesence convention)
         maximizing = (state.current_player == self.player)
-        if q_depth >= 4:
-            return self.evaluate(state)
 
-        stand_pat = self.evaluate(state)
-
+        # checking if need need to explore or if the actual position can perform a cutoff + winding down the window search 
         if maximizing:
             if stand_pat >= beta:
-                return beta
+                return stand_pat
             if stand_pat > alpha:
                 alpha = stand_pat
+            best_value = stand_pat
         else:
             if stand_pat <= alpha:
-                return alpha
+                return stand_pat
             if stand_pat < beta:
                 beta = stand_pat
+            best_value = stand_pat
 
-        q_states = []
+        # while there is treath we continue the (basic) alpha beta search normaly until we find a stable state
         for a in Game.actions(state):
             new_state = state.copy()
             Game.apply(new_state, a)
 
-            if Game._last_piece_won(new_state):
-                q_states.append(new_state)
+            if not Game._last_piece_won(new_state): continue
 
-        if not q_states:
-            return stand_pat
+            score = self.qui_est_ce(new_state, alpha, beta)
 
-        if maximizing:
-            value = -math.inf
-            for new_state in q_states:
-                score = self.quiescence(new_state, alpha, beta, q_depth + 1)
-                value = max(value, score)
-                alpha = max(alpha, value)
-                if alpha >= beta:
-                    return beta
-            return value
+            if maximizing:
+                if score > best_value:
+                    best_value = score
+                alpha = max(alpha, score)
+                if score >= beta:
+                    return score
+            else:
+                if score < best_value:
+                    best_value = score
+                beta = min(beta, score)
+                if score <= alpha:
+                    return score
 
-        else:
-            value = math.inf
-            for new_state in q_states:
-                score = self.quiescence(new_state, alpha, beta, q_depth + 1)
-                value = min(value, score)
-                beta = min(beta, value)
-                if beta <= alpha:
-                    return alpha
-            return value
+        return best_value

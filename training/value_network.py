@@ -1,5 +1,4 @@
 import tensorflow as tf
-tf.keras.mixed_precision.set_global_policy('mixed_float16')
 from keras import layers
 
 
@@ -30,16 +29,15 @@ class ValueNetwork():
         model.compile(optimizer=optimizer, loss=self.loss)
         return model
     
-    def td_coherent_learning(self, states, next_states, rewards, terminal, gamma=0.99):
-        next_values = self.model(next_states, training=False).numpy()
-        targets = rewards + gamma * next_values * (1 - terminal)
-        return targets
+    def train_self_play(self):
+        """self play td1 ??"""
+        return
+
+    def train_td_one(self):
+        """supervised td1"""
+        return
     
-    def train_model(self, states, next_states, rewards, dones, gamma=0.99):
 
-        # TD target
-        next_values = self.model(next_states, training=False).numpy()
-        targets = rewards + gamma * next_values * (1 - dones)
-
-        # train
-        self.model.fit(states, targets, batch_size=32, epochs=1, verbose=0)
+    def train_supervised(self, X_train, y_train, sample_weight=None, batch_size=32, epochs=20, callbacks=None, validation_data=None):
+        history = self.model.fit(X_train, y_train, sample_weight=sample_weight, validation_data=validation_data, batch_size=batch_size, epochs=epochs, callbacks=callbacks, verbose=0)
+        return history

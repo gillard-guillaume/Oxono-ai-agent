@@ -46,7 +46,7 @@ class RLAgent(AlphaBeta):
             3: opponent's O pieces
             4: X totem position
             5: O totem position
-            6: current player indicator (broadcast over the grid)
+            6: indicator of the player to play (broadcast over the grid)
 
         This representation preserves the spatial structure of the board, allowing
         convolutional layers to capture local interactions between pieces.
@@ -75,7 +75,7 @@ class RLAgent(AlphaBeta):
                     tensor[r][c][4] = 1
                 elif sym == 'totem_o':
                     tensor[r][c][5] = 1
-        tensor[:, :, 6] = state.current_player
+        tensor[:, :, 6] = 1 if state.current_player == perspective_player else -1 # symmetry
         return tensor
     
     def quick_eval(self, state: State, action: Action) -> float:
