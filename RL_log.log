@@ -14346,3 +14346,4 @@ TT time: 0.0000s, RL agent
 TT len = 367, RL agent
 Imminent threat detected, blocking it right now, RL agent
 Move : ('O', (2, 1), (2, 2)), RL agent
+Time policy set to : 8.955223880597014, RL agent

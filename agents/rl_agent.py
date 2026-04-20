@@ -109,8 +109,8 @@ class RLAgent(AB8):
         """
         t_start = time.time()
         key = self.hash_state(state)
-        if self.nn_cache[key]:
-            return key
+        if key in self.nn_cache:
+            return self.nn_cache[key]
         encoded = RLAgent.encode_state(state, perspective_player=self.player)
         value = self.model(encoded[np.newaxis], training=False)[0][0]
         self.nn_cache[key] = value
