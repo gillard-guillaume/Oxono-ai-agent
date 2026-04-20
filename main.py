@@ -144,7 +144,7 @@ class PlayMenu:
         self.dropdown_p1 = Dropdown(150, 300, 400, 60, AGENTS, self.font)
 
         # just for testing the models at the moment
-        self.dropdown_p0.selected = AGENTS.index("ab4_agent.py")
+        self.dropdown_p0.selected = AGENTS.index("ab8_agent.py")
         self.dropdown_p1.selected = AGENTS.index("human")
 
         self.play()
