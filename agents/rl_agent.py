@@ -25,7 +25,7 @@ class RLAgent(AB8):
 
     def __init__(self, player, model=None, debug=True, log_file="RL_log.log"):
         super().__init__(player)
-        self.nn_cache = OrderedDict
+        self.nn_cache = OrderedDict()
         self.nn_cache_size = 100_000
         self.agent_name = "RL agent"
         self.debug =debug
