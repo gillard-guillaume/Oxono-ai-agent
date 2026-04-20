@@ -21,6 +21,7 @@ class AB8(Agent):
 
     def __init__(self, player, debug=True, log_file="AB8_log.log", tt_size=100_000):
         super().__init__(player)
+        random.seed(42) # for reproducibility
         self.tt = OrderedDict()
         self.tt_size = tt_size # still need to test what the max can be
         self.init_zobrist()
@@ -68,7 +69,8 @@ class AB8(Agent):
             return None, None, alpha, beta
 
         val, stored_depth, move, flag = self.tt[h] 
-        self.tt.move_to_end(h) # moving to end, LRU cache first = oldest
+        if stored_depth >= depth:
+            self.tt.move_to_end(h) # moving to end, LRU cache first = oldest
 
         if stored_depth < depth: # Not trustworthy enough
             self.tt_miss += 1
@@ -94,13 +96,8 @@ class AB8(Agent):
 
     def tt_store(self, h: int, value: float, depth: int, move: Action | None, flag: int) -> None:
         if h in self.tt:
-            old_val, old_depth, _, old_flag = self.tt[h]
-            if depth < old_depth:
+            if depth < self.tt[h][1]:
                 return
-            if depth == old_depth:
-                # overwriting with exact value bc its better
-                if old_flag == EXACT and flag != EXACT: 
-                    return
             self.tt.pop(h) 
         elif len(self.tt) >= self.tt_size:
             self.tt.popitem(last=False) # LRU / FIFO
@@ -200,25 +197,13 @@ class AB8(Agent):
             tuple[str, tuple[int, int], tuple[int, int]] | None: Winning action if found, otherwise None
         """
         temp_state = state.copy()
-        temp_state.current_player = player # for threat detection player is not the same for win detection its the same 
+        temp_state.current_player = player # for threat detection 
         for action in Game.actions(temp_state):
             new_state = temp_state.copy()
             Game.apply(new_state, action)
-            if Game._last_piece_won(new_state) and self.pieces_in_stock(state, player, action):
+            if Game._last_piece_won(new_state):
                 return action
         return None
-    
-    def pieces_in_stock(self, state: State, player: int, action: Action) -> bool:
-        """Basicly not usefull if it return False we are cooked because we loose next turn 
-            but may prolongue the game and avoid loosing by invalid action error"""
-        if state.current_player == player : # not usefull if its win detection move always valid
-            return True
-        symbol = action[0]
-        if symbol == 'X':
-            pieces_left = state.pieces_x[player]
-        else :
-            pieces_left = state.pieces_o[player]
-        return pieces_left > 0
     
 
     def set_time_policy(self, state: State, remaining_time: float) -> None:
@@ -446,47 +431,40 @@ class AB8(Agent):
         if Game.is_terminal(state):
             return Game.utility(state, self.player)
 
-        best_value = self.evaluate(state)
-
-        if q_depth >= 4:
+        maximizing = (state.current_player == self.player)
+        static_eval = self.evaluate(state) # stand pat
+        static_eval, alpha, beta, cutoff = self.quiesence_ab(static_eval, alpha, beta, maximizing)
+        if cutoff : 
+            return static_eval # fail hard so either alpha or beta
+        best_value = static_eval
+        if q_depth >= 4: 
             return best_value
 
-        maximizing = (state.current_player == self.player)
-
         stratego = []
-
         for a in Game.actions(state):
             new_state = state.copy()
             Game.apply(new_state, a)
-            # if the current player can win with this move
             if Game._last_piece_won(new_state):
-                stratego.append((new_state, True))
-            # if next move opponent can win
-            #elif self.shark_attack(new_state, new_state.current_player): TOO MUCH EPLODING TIME COMPLEXITY NOT EFFICIENTs
-            #    stratego.append((new_state, False)) 
+                stratego.append(new_state)
 
-        if not stratego:
-            return best_value
+        if not stratego: return best_value
         
-        for tactical_state, is_terminal in stratego:
-            if is_terminal:
-                score = Game.utility(tactical_state, self.player)
-            else :
-                score = self.qui_est_ce(tactical_state, alpha, beta, q_depth+1)
-            best_value = max(score, best_value) if maximizing else min(score, best_value)
-            value, alpha, beta, cutoff = self.quiesence_ab(best_value, alpha, beta, maximizing)
+        for tactical_state in stratego:
+            score = self.qui_est_ce(tactical_state, alpha, beta, q_depth+1)
+            value, alpha, beta, cutoff = self.quiesence_ab(score, alpha, beta, maximizing)
             if cutoff:
-                return value
+                return value # fail hard so either alpha or beta
+            best_value = max(value, best_value) if maximizing else min(value, best_value)
         return best_value
         
     def quiesence_ab(self, value, alpha, beta, maximizing):
         """Basic alpha beta search"""
         if maximizing:
             if value >= beta:
-                return value, alpha, beta, True
+                return beta, alpha, beta, True # Fail hard (may remove some bug, source : some obscur forums from 2008)
             alpha = max(alpha, value)
         else:
             if value <= alpha:
-                return value, alpha, beta, True
+                return alpha, alpha, beta, True # Fail hard (idem)
             beta = min(beta, value)
         return value, alpha, beta, False
