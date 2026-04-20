@@ -8,8 +8,51 @@ class MyAgent(Agent):
         super().__init__(player)
 
     def act(self, state, remaining_time):
-        value, move = self.max_value(state, depth=6, alpha=-math.inf, beta=math.inf)
-        return move
+        actions = list(Game.actions(state))
+
+        # 1. Immediate win
+        for action in actions:
+            next_state = state.copy()
+            Game.apply(next_state, action)
+            if Game.is_terminal(next_state) and Game.utility(next_state, self.player) == 1:
+                return action
+
+        # 2. Avoid moves that allow opponent immediate win
+        safe_actions = []
+        for action in actions:
+            next_state = state.copy()
+            Game.apply(next_state, action)
+
+            opponent_can_win = False
+            for opp_action in Game.actions(next_state):
+                reply_state = next_state.copy()
+                Game.apply(reply_state, opp_action)
+
+                if Game.is_terminal(reply_state) and Game.utility(reply_state, self.player) == -1:
+                    opponent_can_win = True
+                    break
+
+            if not opponent_can_win:
+                safe_actions.append(action)
+
+        if safe_actions:
+            actions = safe_actions
+
+        # 3. Run alpha-beta ONLY on filtered actions
+        best_value = -math.inf
+        best_move = None
+
+        for action in actions:
+            next_state = state.copy()
+            Game.apply(next_state, action)
+
+            value, _ = self.min_value(next_state, depth=4, alpha=-math.inf, beta=math.inf)
+
+            if value > best_value:
+                best_value = value
+                best_move = action
+
+        return best_move     
 
     def max_value(self, state, depth, alpha, beta):
         if Game.is_terminal(state):
