@@ -17,6 +17,23 @@ class AB7(Agent):
     AB7
     This agent score 80 percent on inginious symetric (black and pink 4/5 games won)
 
+    Black : 4/5 won 
+        Game 0: won
+        Game 1: won 
+        Game 2: lost due to 4 threat did block one but won next turn to the second already there
+                on turn 20pink played totem x but playing totem o would have been better preventing 
+                black to create a double treath
+        Game 3: won
+        Game 4: lost
+    Pink : 4/5 won
+        Game 5: won
+        Game 6: lost turn 20 here turn 17 black played totem O but it allow pink to creat a threat nex turn
+                forcing us to block it turn 19 but the blocking creat another symbol treath that pink exploit and win turn 20
+        Game 7: won
+        Game 8: won
+        Game 9: won
+
+
     """
 
 
@@ -299,19 +316,6 @@ class AB7(Agent):
         return best_move
 
     def alpha_beta(self, state: State, depth: int) -> Action:
-        """
-        Perform alpha-beta search up to a given depth.
-
-        Args:
-            state (State): Current game state.
-            depth (int): Maximum search depth.
-            start_time (float): Time at which the search started.
-            time_limit (float): Maximum allowed search time.
-
-        Returns:
-            tuple[str, tuple[int, int], tuple[int, int]]:
-                Best action found at this depth.
-        """
         _, move = self.max_value(state, -math.inf, math.inf, depth)
         return move
       
@@ -447,6 +451,7 @@ class AB7(Agent):
         
 
     def qui_est_ce(self, state: State, alpha, beta):
+        self.check_timeout()
         if Game.is_terminal(state):
             return Game.utility(state, self.player)
 
@@ -472,7 +477,8 @@ class AB7(Agent):
             new_state = state.copy()
             Game.apply(new_state, a)
 
-            if not Game._last_piece_won(new_state): continue
+            if not Game._last_piece_won(new_state) and self.shark_attack(new_state, new_state.current_player) is None: 
+                continue
 
             score = self.qui_est_ce(new_state, alpha, beta)
 

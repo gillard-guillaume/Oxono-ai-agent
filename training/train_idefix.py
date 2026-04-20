@@ -36,7 +36,7 @@ def load_data(path):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--data", type=str, required=True)
-    parser.add_argument("--epochs", type=int, default=25)
+    parser.add_argument("--epochs", type=int, default=1000)
     parser.add_argument("--save_every", type=int, default=5)
     parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()

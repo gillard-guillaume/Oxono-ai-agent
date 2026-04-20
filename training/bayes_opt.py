@@ -19,6 +19,8 @@ from training.value_network import ValueNetwork
 
 DEBUG = False
 
+# CMD : optuna-dashboard sqlite:///studies/value_net_bo_ab5_vs_ab1_50k_huber_delta.db
+
 def objective(trial: optuna.trial.Trial) -> float:
     """
     Objective function for Bayesian hyperparameter optimization
