@@ -1,10 +1,12 @@
-from agents.alphabeta_agent import AlphaBeta
+from agents.ab8_agent import AB8
 from oxono.oxono import Game, State
+import time
+from collections import OrderedDict
 from keras.models import load_model
 import numpy as np
 Action = tuple[str, tuple[int, int], tuple[int, int]]
 
-class RLAgent(AlphaBeta):
+class RLAgent(AB8):
     """
     Reinforcement Learning-based agent extending AlphaBeta search
     This agent reuses the AlphaBeta search framework but replaces the
@@ -23,11 +25,13 @@ class RLAgent(AlphaBeta):
 
     def __init__(self, player, model=None, debug=True, log_file="RL_log.log"):
         super().__init__(player)
+        self.nn_cache = OrderedDict
+        self.nn_cache_size = 100_000
         self.agent_name = "RL agent"
         self.debug =debug
         self.log_file = log_file
         try:
-            self.model = model if model is not None else load_model("training/models/cnn_f32_64_d256_lr0.001_g1500_it15.keras")
+            self.model = model if model is not None else load_model("models/idefix_cnn_ab5_vs_ab1_t6.0_g50000_20260417_2236_c2_f128_d256_lr2.8e-04_hd0.31_b64_n694587_20260419_2339_best.keras")
         except Exception:
             self.model = None
 
@@ -91,7 +95,7 @@ class RLAgent(AlphaBeta):
         """
         new_state = state.copy()
         Game.apply(new_state, action)
-        return self.evaluate(new_state)
+        return super().evaluate(new_state)  
     
     def evaluate(self, state: State) -> float:
         """
@@ -103,6 +107,14 @@ class RLAgent(AlphaBeta):
         Returns:
             float: Predicted value of the state.
         """
+        t_start = time.time()
+        key = self.hash_state(state)
+        if self.nn_cache[key]:
+            return key
         encoded = RLAgent.encode_state(state, perspective_player=self.player)
         value = self.model(encoded[np.newaxis], training=False)[0][0]
+        self.nn_cache[key] = value
+        if len(self.nn_cache) > self.nn_cache_size:
+            self.nn_cache.popitem(last=False)
+        self.log(f"CNN time : {time.time()-t_start}")
         return float(value)

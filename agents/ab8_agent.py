@@ -18,7 +18,6 @@ class AB8(Agent):
 
     """
 
-
     def __init__(self, player, debug=False, log_file="AB8_log.log", tt_size=100_000):
         super().__init__(player)
         random.seed(42) # for reproducibility
@@ -67,16 +66,12 @@ class AB8(Agent):
     def tt_lookup(self, h: int, depth: int, alpha: float, beta: float) -> tuple[float | None, Action | None, float, float]:
         if h not in self.tt:
             return None, None, alpha, beta
-
         val, stored_depth, move, flag = self.tt[h] 
         if stored_depth >= depth:
             self.tt.move_to_end(h) # moving to end, LRU cache first = oldest
-
         if stored_depth < depth: # Not trustworthy enough
             self.tt_miss += 1
             return None, move, alpha, beta
-        
-
         if flag == EXACT:
             self.tt_hits += 1
             return val, move, alpha, beta # fail-soft, ok 
@@ -98,7 +93,6 @@ class AB8(Agent):
         if h in self.tt:
             if depth < self.tt[h][1]:
                 return
-            self.tt.pop(h) 
         elif len(self.tt) >= self.tt_size:
             self.tt.popitem(last=False) # LRU / FIFO
         self.log(f"Store: player={self.player}, flag={flag}, val={value}, depth={depth}")
