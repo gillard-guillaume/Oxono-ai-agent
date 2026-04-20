@@ -1,0 +1,4 @@
+matchup,agent_a,agent_b,games,wins_agent_a,wins_agent_b,draws,forfeits,avg_plies,avg_time_agent_a,avg_time_agent_b,avg_move_time_agent_a,avg_move_time_agent_b,wins_as_pink_agent_a,wins_as_black_agent_a,wins_as_pink_agent_b,wins_as_black_agent_b
+random_agent.py vs alpha_beta_eval_agent.py,random_agent.py,alpha_beta_eval_agent.py,2,0,2,0,0,9.5,0.00011695350985974073,102.38623473147163,2.64194022747688e-05,22.425827019367716,0,0,1,1
+random_agent.py vs alpha_beta_eval_improved_agent_time_adaptive.py,random_agent.py,alpha_beta_eval_improved_agent_time_adaptive.py,2,0,2,0,0,7.5,8.592844824306667e-05,6.029387430025963,2.4590900769302003e-05,1.5073468575064908,0,0,1,1
+alpha_beta_eval_agent.py vs alpha_beta_eval_improved_agent_time_adaptive.py,alpha_beta_eval_agent.py,alpha_beta_eval_improved_agent_time_adaptive.py,2,0,2,0,0,8.5,54.0386837234837,7.034750289021758,12.200410502629044,1.5577822492050473,0,0,1,1
