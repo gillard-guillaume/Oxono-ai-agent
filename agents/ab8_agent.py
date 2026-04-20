@@ -19,7 +19,7 @@ class AB8(Agent):
     """
 
 
-    def __init__(self, player, debug=True, log_file="AB8_log.log", tt_size=100_000):
+    def __init__(self, player, debug=False, log_file="AB8_log.log", tt_size=100_000):
         super().__init__(player)
         random.seed(42) # for reproducibility
         self.tt = OrderedDict()
