@@ -3,8 +3,11 @@ from oxono.oxono import Game, State
 import time
 from collections import OrderedDict
 from keras.models import load_model
+import tensorflow as tf
 import numpy as np
 Action = tuple[str, tuple[int, int], tuple[int, int]]
+EXACT = 0; LOWERBOUND = 1; UPPERBOUND = 2
+
 
 class RLAgent(AB8):
     """
@@ -23,7 +26,7 @@ class RLAgent(AB8):
     more promising positions
     """
 
-    def __init__(self, player, model=None, debug=True, log_file="RL_log.log"):
+    def __init__(self, player, model=None, debug=False, log_file="RL_log.log"):
         super().__init__(player)
         self.nn_cache = OrderedDict()
         self.nn_cache_size = 100_000
@@ -81,21 +84,54 @@ class RLAgent(AB8):
                     tensor[r][c][5] = 1
         tensor[:, :, 6] = 1 if state.current_player == perspective_player else -1 # symmetry
         return tensor
+
     
-    def quick_eval(self, state: State, action: Action) -> float:
+    def move_ordering(self, state: State, actions: list[Action], depth: int, h: int, reverse: bool) -> list[Action]:
         """
-        Quickly evaluate the result of applying an action to a state.
+        Order actions to improve alpha-beta pruning
+
+        Priority :
+            1) The hash move from the transposition table (if available)
+            2) Actions evaluated using transposition table values when possible
+            3) Otherwise, heuristic evaluation of resulting states
 
         Args:
-            state (State): Current game state.
-            action (Action): Action to simulate.
+            state (State): Current game state
+            actions (list[Action]): List of possible actions
+            depth (int): Current remaining depth
+            h (int): Zobrist hash of the current state
+            reverse (bool): Sorting direction for heuristic scores
+                True for max nodes (descending)
+                False for min nodes (ascending)
 
         Returns:
-            float: Heuristic value of the resulting state.
+            list[Action]: Ordered list of actions
         """
-        new_state = state.copy()
-        Game.apply(new_state, action)
-        return super().evaluate(new_state)  
+        scored = []
+        tt_move = self.tt[h][2] if h in self.tt else None
+        for a in actions:
+            if a == tt_move:
+                continue
+            h_child = super().update_hash(h, state, a)
+            score = None
+            if h_child in self.tt:
+                val, d, _, flag = self.tt[h_child]
+                if d >= depth - 1 and flag == EXACT:
+                    score = val
+            if score is None:
+                new_state = state.copy()
+                Game.apply(new_state, a)
+                score = super().evaluate(new_state)
+            scored.append((score, a))
+        scored.sort(key=lambda x: x[0], reverse=reverse)
+        if tt_move in actions:
+            return [tt_move] + [a for _, a in scored]
+        return [a for _, a in scored][:5]
+
+
+    @tf.function
+    def model_predict(self, x):
+        return self.model(x, training=False)
     
     def evaluate(self, state: State) -> float:
         """
@@ -107,14 +143,18 @@ class RLAgent(AB8):
         Returns:
             float: Predicted value of the state.
         """
-        t_start = time.time()
         key = self.hash_state(state)
         if key in self.nn_cache:
             return self.nn_cache[key]
+        t_encode = time.time()
         encoded = RLAgent.encode_state(state, perspective_player=self.player)
-        value = self.model(encoded[np.newaxis], training=False)[0][0]
+        encoded = tf.convert_to_tensor(encoded, dtype=tf.float32)
+        encoded = encoded[None, ...]
+        #self.log(f"ENCODE time : {time.time()-t_encode}")
+        t_cnn = time.time()
+        value = self.model_predict(encoded)[0][0]
+        #self.log(f"CNN time : {time.time()-t_cnn}")
         self.nn_cache[key] = value
         if len(self.nn_cache) > self.nn_cache_size:
             self.nn_cache.popitem(last=False)
-        self.log(f"CNN time : {time.time()-t_start}")
         return float(value)

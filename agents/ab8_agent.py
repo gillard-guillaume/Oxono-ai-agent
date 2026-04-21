@@ -15,11 +15,11 @@ class AB8(Agent):
     Alpha-beta search agent with iterative deepening and transposition table
 
     Combines alpha-beta pruning, Zobrist hashing, move ordering, and quiescence search to efficiently explore the game tree
-    
+
     Simple heuristic evaluation function
     """
 
-    def __init__(self, player, debug=False, log_file="AB8_log.log", tt_size=100_000):
+    def __init__(self, player, debug=True, log_file="AB8_log.log", tt_size=100_000):
         super().__init__(player)
         random.seed(42) # for reproducibility
         self.tt = OrderedDict()
@@ -31,6 +31,7 @@ class AB8(Agent):
         self.debug = debug
         self.log_file = log_file
         self.tt_hits = 0; self.tt_miss = 0; self.tt_time = 0
+        self.node_count = 0
 
     def log(self, msg: str) -> None:
         """
@@ -402,13 +403,15 @@ class AB8(Agent):
 
         try:
             while True:
+                self.node_count = 0 
                 move = self.alpha_beta(state, depth)
+                self.log(f"Depth {depth} -> nodes: {self.node_count}")
                 if not self.stop_search:
                     best_move = move; last_completed_depth = depth
                 depth += 1
         except TimeoutError:
             pass
-        self.log(f"[INFO] max depth reached: {last_completed_depth}")
+        self.log(f"[INFO] max depth reached: {last_completed_depth}, {self.agent_name}")
         self.log(f"TT hits: {self.tt_hits}, miss: {self.tt_miss}")
         self.log(f"TT time: {self.tt_time:.4f}s")
         self.log(f"TT len = {len(self.tt)}")
@@ -457,6 +460,7 @@ class AB8(Agent):
         Returns:
             tuple[float, Action | None]: Max value and associated action
         """
+        self.node_count += 1
         self.check_timeout()
 
         if Game.is_terminal(state):
@@ -512,6 +516,7 @@ class AB8(Agent):
         Returns:
             tuple[float, Action | None]: Min value and associated action
         """
+        self.node_count += 1
         self.check_timeout()
         if Game.is_terminal(state):
             return Game.utility(state, self.player), None
