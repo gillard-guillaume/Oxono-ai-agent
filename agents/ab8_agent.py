@@ -19,7 +19,7 @@ class AB8(Agent):
     Simple heuristic evaluation function
     """
 
-    def __init__(self, player, debug=True, log_file="AB8_log.log", tt_size=100_000):
+    def __init__(self, player, debug=False, log_file="AB8_log.log", tt_size=100_000):
         super().__init__(player)
         random.seed(42) # for reproducibility
         self.tt = OrderedDict()
@@ -576,13 +576,29 @@ class AB8(Agent):
                     count_symbol = 0; count_color = 0
                     for i in range(4):
                         nr, nc = r + i*dr, c + i*dc
-                        if not (0 <= nr < 6 and 0 <= nc < 6): break
+                        if not (0 <= nr < 6 and 0 <= nc < 6):
+                            break
                         cell = board[nr][nc]
-                        if cell is None: break
+                        if cell is None:
+                            break
                         sym, pl = cell
-                        if sym == symbol: count_symbol += 1
-                        if pl == player: count_color += 1
-                        else: break
+                        if sym == symbol:
+                            count_symbol += 1
+                        else:
+                            break
+
+                    for i in range(4):
+                        nr, nc = r + i*dr, c + i*dc
+                        if not (0 <= nr < 6 and 0 <= nc < 6):
+                            break
+                        cell = board[nr][nc]
+                        if cell is None:
+                            break
+                        sym, pl = cell
+                        if pl == player:
+                            count_color += 1
+                        else:
+                            break
                     val = count_symbol * SYMBOLS + count_color * COLOURS
                     score += val if player == self.player else -val
         return math.tanh(score / 300)
